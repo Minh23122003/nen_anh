@@ -1,11 +1,272 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="vi">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
+  <meta charset="UTF-8">
+  <title>Nén ảnh & chuyển sang WebP</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      max-width: 960px;
+      margin: 20px auto;
+      padding: 0 16px;
+      background: #f5f5f5;
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 16px;
+    }
+    .card {
+      background: #fff;
+      border-radius: 8px;
+      padding: 16px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+      margin-bottom: 16px;
+    }
+    label {
+      font-weight: 600;
+    }
+    input[type="number"],
+    input[type="file"] {
+      margin-top: 4px;
+      margin-bottom: 12px;
+      width: 100%;
+    }
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      margin-top: 8px;
+      margin-bottom: 12px;
+    }
+    .slider-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    button {
+      padding: 8px 16px;
+      border-radius: 4px;
+      border: none;
+      background: #0070f3;
+      color: #fff;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+      font-size: 14px;
+    }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 6px 8px;
+      text-align: left;
+    }
+    th {
+      background: #fafafa;
+    }
+    .small {
+      font-size: 12px;
+      color: #555;
+    }
+    .badge-ok { color: #0a7f2e; font-weight: 600; }
+    .badge-err { color: #c62828; font-weight: 600; }
+  </style>
 </head>
 <body>
-    <h1>test git</h1>
+  <h1>Nén nhiều ảnh & chuyển sang WebP</h1>
+
+  <div class="card">
+    <p>Chọn nhiều ảnh (JPG, PNG, GIF...) rồi bấm <b>Convert</b>. Trình duyệt sẽ xử lý trên máy, không upload lên server.</p>
+    <input id="fileInput" type="file" accept="image/*" multiple>
+
+    <div class="controls">
+      <div>
+        <label for="quality">Chất lượng WebP (0–100)</label>
+        <div class="slider-row">
+          <input id="quality" type="range" min="10" max="100" value="80">
+          <span id="qualityLabel">80</span>
+        </div>
+        <div class="small">70–85 là hợp lý cho web (giảm dung lượng mạnh, giữ chất lượng ổn).</div>
+      </div>
+      <div>
+        <label for="maxWidth">Giới hạn chiều rộng (px, optional)</label>
+        <input id="maxWidth" type="number" placeholder="VD: 1600 (để trống = giữ nguyên)">
+        <div class="small">Nếu ảnh lớn hơn giá trị này sẽ được resize theo tỉ lệ.</div>
+      </div>
+    </div>
+
+    <button id="convertBtn" disabled>Convert sang WebP</button>
+    <span id="status" class="small"></span>
+  </div>
+
+  <div class="card">
+    <h2>Kết quả</h2>
+    <table id="resultTable">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Tên file gốc</th>
+          <th>Kích thước gốc</th>
+          <th>Kích thước WebP</th>
+          <th>Giảm (%)</th>
+          <th>Trạng thái</th>
+          <th>Tải WebP</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- Rows will be injected here -->
+      </tbody>
+    </table>
+    <p class="small">Lưu ý: một số trình duyệt cũ (Safari rất cũ) có thể không hỗ trợ WebP.</p>
+  </div>
+
+  <script>
+    const fileInput = document.getElementById('fileInput');
+    const convertBtn = document.getElementById('convertBtn');
+    const resultTableBody = document.querySelector('#resultTable tbody');
+    const qualityInput = document.getElementById('quality');
+    const qualityLabel = document.getElementById('qualityLabel');
+    const maxWidthInput = document.getElementById('maxWidth');
+    const statusEl = document.getElementById('status');
+
+    let files = [];
+
+    qualityInput.addEventListener('input', () => {
+      qualityLabel.textContent = qualityInput.value;
+    });
+
+    fileInput.addEventListener('change', (e) => {
+      files = Array.from(e.target.files || []);
+      convertBtn.disabled = files.length === 0;
+      statusEl.textContent = files.length
+        ? `Đã chọn ${files.length} ảnh.`
+        : '';
+      // Clear previous result
+      resultTableBody.innerHTML = '';
+    });
+
+    convertBtn.addEventListener('click', async () => {
+      if (!files.length) return;
+
+      resultTableBody.innerHTML = '';
+      convertBtn.disabled = true;
+      statusEl.textContent = 'Đang xử lý...';
+
+      const quality = parseInt(qualityInput.value, 10) / 100;
+      const maxWidth = parseInt(maxWidthInput.value, 10) || null;
+
+      let index = 1;
+      for (const file of files) {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${index++}</td>
+          <td>${file.name}</td>
+          <td>${formatBytes(file.size)}</td>
+          <td>-</td>
+          <td>-</td>
+          <td>Đang xử lý...</td>
+          <td></td>
+        `;
+        resultTableBody.appendChild(row);
+
+        try {
+          const { blob, newWidth, newHeight } = await convertImageToWebP(file, quality, maxWidth);
+          const webpSize = blob.size;
+
+          const percent = file.size > 0
+            ? ((1 - webpSize / file.size) * 100).toFixed(1)
+            : '0';
+
+          // Cập nhật row
+          row.cells[3].textContent = `${formatBytes(webpSize)} (${newWidth}×${newHeight})`;
+          row.cells[4].textContent = percent + '%';
+          row.cells[5].innerHTML = '<span class="badge-ok">OK</span>';
+
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.textContent = 'Tải về';
+          a.download = file.name.replace(/\.[^.]+$/, '') + '.webp';
+          row.cells[6].appendChild(a);
+        } catch (err) {
+          console.error(err);
+          row.cells[5].innerHTML = '<span class="badge-err">Lỗi</span>';
+          row.cells[6].textContent = err.message || 'Không convert được';
+        }
+      }
+
+      statusEl.textContent = 'Xong. Bạn có thể tải từng file WebP ở cột cuối.';
+      convertBtn.disabled = false;
+    });
+
+    function formatBytes(bytes) {
+      if (bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    function loadImage(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = reject;
+          img.src = reader.result;
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function convertImageToWebP(file, quality = 0.8, maxWidth = null) {
+      return new Promise(async (resolve, reject) => {
+        try {
+          const img = await loadImage(file);
+          let width = img.width;
+          let height = img.height;
+
+          if (maxWidth && width > maxWidth) {
+            const ratio = maxWidth / width;
+            width = maxWidth;
+            height = Math.round(height * ratio);
+          }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+
+          if (!canvas.toBlob) {
+            return reject(new Error('Trình duyệt không hỗ trợ canvas.toBlob.'));
+          }
+
+          canvas.toBlob(
+            (blob) => {
+              if (!blob) {
+                reject(new Error('Không tạo được WebP blob.'));
+              } else {
+                resolve({ blob, newWidth: width, newHeight: height });
+              }
+            },
+            'image/webp',
+            quality
+          );
+        } catch (err) {
+          reject(err);
+        }
+      });
+    }
+  </script>
 </body>
 </html>
